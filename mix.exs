@@ -9,7 +9,7 @@ defmodule ICalendar.Mixfile do
       app: :icalendar,
       name: "ICalendar",
       version: @version,
-      elixir: "~> 1.9",
+      elixir: "~> 1.14",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -24,7 +24,7 @@ defmodule ICalendar.Mixfile do
 
   defp deps do
     [
-      {:timex, "~> 3.4"},
+      {:timex, github: "bitwalker/timex", branch: "main"},
       {:mix_test_watch, ">= 0.0.0", only: :dev},
       {:ex_doc, ">= 0.0.0", only: [:dev, :test], runtime: false}
     ]
