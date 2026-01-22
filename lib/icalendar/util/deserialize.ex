@@ -234,22 +234,36 @@ defmodule ICalendar.Util.Deserialize do
       [{{1998, 1, 19}, {2, 0, 0}}, "America/Chicago"]
   """
   def to_date(date_string, %{"TZID" => timezone}) do
-    # Microsoft Outlook calendar .ICS files report times in Greenwich Standard Time (UTC +0)
-    # so just convert this to UTC
-    timezone =
-      if Regex.match?(~r/\//, timezone) do
-        timezone
-      else
-        Timex.Timezone.Utils.to_olson(timezone)
-      end
+    # Handle date-only formats (8 chars or 9 chars with Z) before datetime parsing
+    # These formats don't have time components: "20251011" or "20251011Z"
+    cond do
+      String.length(date_string) == 8 ->
+        # Date-only without Z: "20251011" -> parse as date at midnight UTC
+        to_date(date_string <> "T000000Z")
 
-    date_string =
-      case String.last(date_string) do
-        "Z" -> date_string
-        _ -> date_string <> "Z"
-      end
+      String.length(date_string) == 9 and String.ends_with?(date_string, "Z") ->
+        # Date-only with Z: "20251011Z" -> strip Z and parse as date at midnight UTC
+        date_part = String.slice(date_string, 0, 8)
+        to_date(date_part <> "T000000Z")
 
-    Timex.parse(date_string <> timezone, "{YYYY}{0M}{0D}T{h24}{m}{s}Z{Zname}")
+      true ->
+        # Microsoft Outlook calendar .ICS files report times in Greenwich Standard Time (UTC +0)
+        # so just convert this to UTC
+        timezone =
+          if Regex.match?(~r/\//, timezone) do
+            timezone
+          else
+            Timex.Timezone.Utils.to_olson(timezone)
+          end
+
+        date_string =
+          case String.last(date_string) do
+            "Z" -> date_string
+            _ -> date_string <> "Z"
+          end
+
+        Timex.parse(date_string <> timezone, "{YYYY}{0M}{0D}T{h24}{m}{s}Z{Zname}")
+    end
   end
 
   def to_date(date_string, %{"VALUE" => "DATE"}) do
