@@ -347,7 +347,7 @@ defmodule ICalendar.Util.Deserialize do
     |> Enum.reduce(%{}, fn rule, hash ->
       [key, value] = rule |> String.split("=")
 
-      case key |> String.downcase() |> String.to_existing_atom() do
+      case rrule_key(key) do
         :freq ->
           hash |> Map.put(:freq, value)
 
@@ -394,5 +394,12 @@ defmodule ICalendar.Util.Deserialize do
           hash
       end
     end)
+  end
+
+  # An unknown RRULE part has no existing atom; it is ignored instead of raising.
+  defp rrule_key(key) do
+    key |> String.downcase() |> String.to_existing_atom()
+  rescue
+    ArgumentError -> nil
   end
 end

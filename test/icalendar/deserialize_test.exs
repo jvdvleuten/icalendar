@@ -189,5 +189,12 @@ defmodule ICalendar.DeserializeTest do
       assert {:error, _} = ICalendar.Util.Deserialize.to_date("20261005T080000", %{"TZID" => ""})
       assert {:error, _} = ICalendar.Util.Deserialize.to_date("20261005T080000", %{"TZID" => nil})
     end
+
+    test "parse_rrule/1 ignores a part it does not know instead of raising" do
+      unknown = "X-NEVER-SEEN-#{System.unique_integer([:positive])}"
+
+      assert ICalendar.Util.Deserialize.parse_rrule("FREQ=WEEKLY;#{unknown}=1;COUNT=3") ==
+               %{freq: "WEEKLY", count: 3}
+    end
   end
 end
