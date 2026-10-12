@@ -117,5 +117,77 @@ defmodule ICalendar.DeserializeTest do
       [event] = ICalendar.from_ics(ics)
       assert event.url == "http://google.com"
     end
+
+    test "quoted TZID resolves to the zone" do
+      ics = """
+      BEGIN:VEVENT
+      DTSTART;TZID="Europe/Amsterdam":20261005T080000
+      DTEND;TZID="Europe/Amsterdam":20261005T090000
+      END:VEVENT
+      """
+
+      [event] = ICalendar.from_ics(ics)
+      assert event.dtstart.time_zone == "Europe/Amsterdam"
+      assert Timex.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+      assert event.dtend.time_zone == "Europe/Amsterdam"
+    end
+
+    test "Windows TZID that Timex maps resolves to the zone" do
+      ics = """
+      BEGIN:VEVENT
+      DTSTART;TZID=W. Europe Standard Time:20261005T080000
+      END:VEVENT
+      """
+
+      [event] = ICalendar.from_ics(ics)
+      assert event.dtstart.time_zone == "Europe/Berlin"
+      assert Timex.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+    end
+
+    test "unresolvable TZID leaves the date unset and keeps the other events" do
+      ics = """
+      BEGIN:VEVENT
+      SUMMARY:Good before
+      DTSTART;TZID=Europe/Amsterdam:20261005T080000
+      END:VEVENT
+      BEGIN:VEVENT
+      SUMMARY:Bad zone
+      DTSTART;TZID=Customized Time Zone:20261005T080000
+      DTEND;TZID=Customized Time Zone:20261005T090000
+      EXDATE;TZID=Customized Time Zone:20261006T080000
+      END:VEVENT
+      BEGIN:VEVENT
+      SUMMARY:Empty zone
+      DTSTART;TZID=:20261005T080000
+      DTEND;TZID="":20261005T090000
+      END:VEVENT
+      BEGIN:VEVENT
+      SUMMARY:Good after
+      DTSTART:20261005T080000Z
+      END:VEVENT
+      """
+
+      [last, empty, bad, before] = ICalendar.from_ics(ics)
+
+      assert before.summary == "Good before"
+      assert before.dtstart.time_zone == "Europe/Amsterdam"
+      assert bad.summary == "Bad zone"
+      assert bad.dtstart == nil
+      assert bad.dtend == nil
+      assert bad.exdates == []
+      assert empty.summary == "Empty zone"
+      assert empty.dtstart == nil
+      assert empty.dtend == nil
+      assert last.summary == "Good after"
+      assert Timex.to_erl(last.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+    end
+
+    test "to_date/2 returns an error naming an unresolvable TZID" do
+      assert ICalendar.Util.Deserialize.to_date("20261005T080000", %{"TZID" => "\"Nope\""}) ==
+               {:error, "Unknown TZID `Nope`"}
+
+      assert {:error, _} = ICalendar.Util.Deserialize.to_date("20261005T080000", %{"TZID" => ""})
+      assert {:error, _} = ICalendar.Util.Deserialize.to_date("20261005T080000", %{"TZID" => nil})
+    end
   end
 end

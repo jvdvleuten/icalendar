@@ -79,16 +79,20 @@ defmodule ICalendar.Util.Deserialize do
         %Property{key: "DTSTART", value: dtstart, params: params},
         acc
       ) do
-    {:ok, timestamp} = to_date(dtstart, params)
-    %{acc | dtstart: timestamp}
+    case to_date(dtstart, params) do
+      {:ok, timestamp} -> %{acc | dtstart: timestamp}
+      {:error, _} -> acc
+    end
   end
 
   def parse_attr(
         %Property{key: "DTEND", value: dtend, params: params},
         acc
       ) do
-    {:ok, timestamp} = to_date(dtend, params)
-    %{acc | dtend: timestamp}
+    case to_date(dtend, params) do
+      {:ok, timestamp} -> %{acc | dtend: timestamp}
+      {:error, _} -> acc
+    end
   end
 
   def parse_attr(
@@ -108,8 +112,11 @@ defmodule ICalendar.Util.Deserialize do
         acc
       ) do
     exdates = Map.get(acc, :exdates, [])
-    {:ok, timestamp} = to_date(exdate, params)
-    %{acc | exdates: [timestamp | exdates]}
+
+    case to_date(exdate, params) do
+      {:ok, timestamp} -> %{acc | exdates: [timestamp | exdates]}
+      {:error, _} -> acc
+    end
   end
 
   def parse_attr(
@@ -172,8 +179,10 @@ defmodule ICalendar.Util.Deserialize do
         %Property{key: "LAST-MODIFIED", value: modified},
         acc
       ) do
-    {:ok, timestamp} = to_date(modified)
-    %{acc | modified: timestamp}
+    case to_date(modified) do
+      {:ok, timestamp} -> %{acc | modified: timestamp}
+      {:error, _} -> acc
+    end
   end
 
   def parse_attr(
@@ -232,8 +241,17 @@ defmodule ICalendar.Util.Deserialize do
       ...> %{"TZID" => "America/Chicago"})
       ...> [Timex.to_erl(date), date.time_zone]
       [{{1998, 1, 19}, {2, 0, 0}}, "America/Chicago"]
+
+  A TZID that cannot be resolved returns an error instead of guessing a zone:
+
+      iex> ICalendar.Util.Deserialize.to_date("19980119T020000",
+      ...> %{"TZID" => "Customized Time Zone"})
+      {:error, "Unknown TZID `Customized Time Zone`"}
   """
   def to_date(date_string, %{"TZID" => timezone}) do
+    # RFC 5545 allows quoted parameter values, and the parameter parser keeps the quotes
+    timezone = original_timezone = String.trim(to_string(timezone), ~s("))
+
     # Handle date-only formats (8 chars or 9 chars with Z) before datetime parsing
     # These formats don't have time components: "20251011" or "20251011Z"
     cond do
@@ -256,13 +274,19 @@ defmodule ICalendar.Util.Deserialize do
             Timex.Timezone.Utils.to_olson(timezone)
           end
 
-        date_string =
-          case String.last(date_string) do
-            "Z" -> date_string
-            _ -> date_string <> "Z"
-          end
+        case timezone do
+          nil ->
+            {:error, "Unknown TZID `#{original_timezone}`"}
 
-        Timex.parse(date_string <> timezone, "{YYYY}{0M}{0D}T{h24}{m}{s}Z{Zname}")
+          timezone ->
+            date_string =
+              case String.last(date_string) do
+                "Z" -> date_string
+                _ -> date_string <> "Z"
+              end
+
+            Timex.parse(date_string <> timezone, "{YYYY}{0M}{0D}T{h24}{m}{s}Z{Zname}")
+        end
     end
   end
 
