@@ -2,7 +2,7 @@ defmodule ICalendar.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/lpil/icalendar"
-  @version "1.1.2"
+  @version "1.1.3"
 
   def project do
     [
@@ -19,14 +19,14 @@ defmodule ICalendar.Mixfile do
   end
 
   def application do
-    [applications: [:timex]]
+    [extra_applications: []]
   end
 
   defp deps do
     [
       {:timex, "~> 3.7"},
       {:mix_test_watch, ">= 0.0.0", only: :dev},
-      {:ex_doc, ">= 0.0.0", only: [:dev, :test], runtime: false}
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 
