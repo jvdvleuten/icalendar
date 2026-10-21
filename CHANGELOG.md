@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- Drop the timex dependency. Dates are handled with the standard library and tzdata, which is now an explicit dependency
+  and is passed explicitly instead of relying on the `:time_zone_database` config of the host application.
+- The Windows to Olson time zone table moved into `ICalendar.Util.WindowsZones` (same 100 entries).
+- A local time that occurs twice because the clocks go back now resolves to the later one (standard time) in
+  `ICalendar.Util.Deserialize.to_date/2` and `ICalendar.Util.DateParser.parse/2`, instead of returning a
+  `%Timex.AmbiguousDateTime{}`. A local time that does not exist is still an error.
+- Zone names such as `Etc/GMT+5`, `Dateline Standard Time` and `UTC-11` now resolve instead of returning a parse error.
+
 ## v1.1.3 - 2026-02-10
 
 - Fix atom generation vulnerability.

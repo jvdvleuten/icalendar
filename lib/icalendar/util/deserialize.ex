@@ -221,13 +221,13 @@ defmodule ICalendar.Util.Deserialize do
   It should be able to handle dates from the past:
 
       iex> {:ok, date} = ICalendar.Util.Deserialize.to_date("19930407T153022Z")
-      ...> Timex.to_erl(date)
+      ...> DateTime.to_naive(date) |> NaiveDateTime.to_erl()
       {{1993, 4, 7}, {15, 30, 22}}
 
   As well as the future:
 
       iex> {:ok, date} = ICalendar.Util.Deserialize.to_date("39930407T153022Z")
-      ...> Timex.to_erl(date)
+      ...> DateTime.to_naive(date) |> NaiveDateTime.to_erl()
       {{3993, 4, 7}, {15, 30, 22}}
 
   And should return error for incorrect dates:
@@ -239,8 +239,28 @@ defmodule ICalendar.Util.Deserialize do
 
       iex> {:ok, date} = ICalendar.Util.Deserialize.to_date("19980119T020000",
       ...> %{"TZID" => "America/Chicago"})
-      ...> [Timex.to_erl(date), date.time_zone]
+      ...> [DateTime.to_naive(date) |> NaiveDateTime.to_erl(), date.time_zone]
       [{{1998, 1, 19}, {2, 0, 0}}, "America/Chicago"]
+
+  Windows time zone names, as written by Outlook, are translated to Olson names:
+
+      iex> {:ok, date} = ICalendar.Util.Deserialize.to_date("20250715T093000",
+      ...> %{"TZID" => "W. Europe Standard Time"})
+      ...> [DateTime.to_naive(date) |> NaiveDateTime.to_erl(), date.time_zone]
+      [{{2025, 7, 15}, {9, 30, 0}}, "Europe/Berlin"]
+
+  A local time that occurs twice because the clocks go back resolves to the later one
+  (standard time). A local time that does not exist because the clocks go forward is an
+  error:
+
+      iex> {:ok, date} = ICalendar.Util.Deserialize.to_date("20251026T023000",
+      ...> %{"TZID" => "Europe/Amsterdam"})
+      ...> date.utc_offset
+      3600
+
+      iex> ICalendar.Util.Deserialize.to_date("20250330T023000",
+      ...> %{"TZID" => "Europe/Amsterdam"})
+      {:error, {:could_not_resolve_timezone, "Europe/Amsterdam", 63910521000, :wall}}
 
   A TZID that cannot be resolved returns an error instead of guessing a zone:
 
@@ -271,7 +291,7 @@ defmodule ICalendar.Util.Deserialize do
           if Regex.match?(~r/\//, timezone) do
             timezone
           else
-            Timex.Timezone.Utils.to_olson(timezone)
+            ICalendar.Util.WindowsZones.to_olson(timezone)
           end
 
         case timezone do
@@ -285,7 +305,7 @@ defmodule ICalendar.Util.Deserialize do
                 _ -> date_string <> "Z"
               end
 
-            Timex.parse(date_string <> timezone, "{YYYY}{0M}{0D}T{h24}{m}{s}Z{Zname}")
+            parse_local(date_string <> timezone)
         end
     end
   end
@@ -301,6 +321,71 @@ defmodule ICalendar.Util.Deserialize do
   def to_date(date_string) do
     to_date(date_string, %{"TZID" => "Etc/UTC"})
   end
+
+  # Parses `YYYYMMDDTHHMMSSZ<zone name>` where the zone name is the rest of the string.
+  # The error messages for a malformed date or time follow the wording this function has
+  # always returned: `Expected <what> at line 1, column <n>.`
+  defp parse_local(string) do
+    with {:ok, year, rest} <- take_year(string),
+         {:ok, month, rest} <- take_int(rest, string, 1..12, "2 digit month"),
+         {:ok, day, rest} <- take_int(rest, string, 1..31, "day of month"),
+         {:ok, rest} <- take_literal(rest, string, "T"),
+         {:ok, hour, rest} <- take_int(rest, string, 0..24, "hour between 0 and 24"),
+         {:ok, minute, rest} <- take_int(rest, string, 0..59, "minute"),
+         {:ok, second, rest} <- take_int(rest, string, 0..60, "second"),
+         {:ok, zone} <- take_literal(rest, string, "Z"),
+         {:ok, naive} <- build_naive(year, month, day, hour, minute, second) do
+      ICalendar.Util.TimeZone.localize(naive, zone, :error)
+    end
+  end
+
+  # A leap second (:60) rolls over into the next minute, like it always did.
+  defp build_naive(year, month, day, hour, minute, 60) do
+    with {:ok, naive} <- NaiveDateTime.new(year, month, day, hour, minute, 59, {0, 6}) do
+      {:ok, NaiveDateTime.add(naive, 1, :second)}
+    end
+  end
+
+  defp build_naive(year, month, day, hour, minute, second) do
+    NaiveDateTime.new(year, month, day, hour, minute, second)
+  end
+
+  defp take_year(string) do
+    case Regex.run(~r/\A(\d{1,4})(.*)\z/s, string) do
+      [_, digits, rest] ->
+        case String.to_integer(digits) do
+          0 -> {:error, "Expected `1-4 digit year` at line 1, column 1."}
+          year -> {:ok, year, rest}
+        end
+
+      _ ->
+        {:error, "Expected `1-4 digit year` at line 1, column 1."}
+    end
+  end
+
+  defp take_int(rest, string, range, label) do
+    with <<digits::binary-size(2), after_digits::binary>> <- rest,
+         true <- digits =~ ~r/\A\d\d\z/,
+         value = String.to_integer(digits),
+         true <- value in range do
+      {:ok, value, after_digits}
+    else
+      _ -> {:error, "Expected `#{label}` at line 1, column #{column(string, rest)}."}
+    end
+  end
+
+  defp take_literal(rest, string, literal) do
+    if String.starts_with?(rest, literal) do
+      {:ok, binary_part(rest, 1, byte_size(rest) - 1)}
+    else
+      found = String.first(rest) || "end of input"
+
+      {:error,
+       "Expected `#{literal}`, but found `#{found}` at line 1, column #{column(string, rest)}."}
+    end
+  end
+
+  defp column(string, rest), do: String.length(string) - String.length(rest) + 1
 
   defp to_geo(geo) do
     geo

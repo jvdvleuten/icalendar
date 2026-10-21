@@ -57,11 +57,15 @@ defmodule ICalendar.Util.DateParser do
   If the tzid is a valid tzid (ex. "America/New_York"), `parse/2` will return
   a %DateTime{} with the given timezone.
 
+  A local time that occurs twice because the clocks go back resolves to the later one
+  (standard time). A local time that does not exist because the clocks go forward returns
+  `{:error, reason}` instead of a `%DateTime{}`, as does an unknown time zone.
+
   Otherwise, if `parse/1` is used or `parse/2` is used with a `nil` tzid,
   the returned %DateTime{} will be in the local timezone.
   """
 
-  @type valid_timezone :: String.t() | :utc | :local
+  @type valid_timezone :: String.t() | :utc
 
   @spec parse(String.t(), valid_timezone | nil) :: %DateTime{}
   def parse(data, tzid \\ nil)
@@ -103,20 +107,26 @@ defmodule ICalendar.Util.DateParser do
     date = {year, month, day}
     time = {hour, minutes, seconds}
 
-    {to_integers(date), to_integers(time)}
-    |> Timex.to_datetime(timezone)
+    with {:ok, naive} <- {to_integers(date), to_integers(time)} |> NaiveDateTime.from_erl(),
+         {:ok, datetime} <- ICalendar.Util.TimeZone.localize(naive, timezone, :error) do
+      datetime
+    end
   end
 
   # Date Format: "19690620Z", Timezone: *
   def parse(<<year::binary-size(4), month::binary-size(2), day::binary-size(2), "Z">>, _timezone) do
-    {to_integers({year, month, day}), {0, 0, 0}}
-    |> Timex.to_datetime()
+    to_utc({to_integers({year, month, day}), {0, 0, 0}})
   end
 
   # Date Format: "19690620", Timezone: *
   def parse(<<year::binary-size(4), month::binary-size(2), day::binary-size(2)>>, _timezone) do
-    {to_integers({year, month, day}), {0, 0, 0}}
-    |> Timex.to_datetime()
+    to_utc({to_integers({year, month, day}), {0, 0, 0}})
+  end
+
+  defp to_utc(erl) do
+    with {:ok, naive} <- NaiveDateTime.from_erl(erl) do
+      DateTime.from_naive!(naive, "Etc/UTC")
+    end
   end
 
   @spec to_integers({String.t(), String.t(), String.t()}) :: {integer, integer, integer}

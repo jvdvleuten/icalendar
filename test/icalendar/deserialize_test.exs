@@ -23,8 +23,8 @@ defmodule ICalendar.DeserializeTest do
       [event] = ICalendar.from_ics(ics)
 
       assert event == %Event{
-               dtstart: Timex.to_datetime({{2015, 12, 24}, {8, 30, 0}}),
-               dtend: Timex.to_datetime({{2015, 12, 24}, {8, 45, 0}}),
+               dtstart: TestHelper.to_datetime({{2015, 12, 24}, {8, 30, 0}}),
+               dtend: TestHelper.to_datetime({{2015, 12, 24}, {8, 45, 0}}),
                summary: "Going fishing",
                description: "Escape from the world. Stare at some water.",
                location: "123 Fun Street, Toronto ON, Canada",
@@ -57,8 +57,8 @@ defmodule ICalendar.DeserializeTest do
       [event] = ICalendar.from_ics(ics)
 
       assert event == %Event{
-               dtstart: Timex.to_datetime({{2015, 12, 24}, {8, 30, 0}}),
-               dtend: Timex.to_datetime({{2015, 12, 24}, {8, 45, 0}}),
+               dtstart: TestHelper.to_datetime({{2015, 12, 24}, {8, 30, 0}}),
+               dtend: TestHelper.to_datetime({{2015, 12, 24}, {8, 45, 0}}),
                summary:
                  "Going fishing at the lake that happens to be in the middle of fun street.",
                description:
@@ -128,7 +128,7 @@ defmodule ICalendar.DeserializeTest do
 
       [event] = ICalendar.from_ics(ics)
       assert event.dtstart.time_zone == "Europe/Amsterdam"
-      assert Timex.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+      assert TestHelper.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
       assert event.dtend.time_zone == "Europe/Amsterdam"
     end
 
@@ -141,7 +141,7 @@ defmodule ICalendar.DeserializeTest do
 
       [event] = ICalendar.from_ics(ics)
       assert event.dtstart.time_zone == "Europe/Berlin"
-      assert Timex.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+      assert TestHelper.to_erl(event.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
     end
 
     test "unresolvable TZID leaves the date unset and keeps the other events" do
@@ -179,7 +179,7 @@ defmodule ICalendar.DeserializeTest do
       assert empty.dtstart == nil
       assert empty.dtend == nil
       assert last.summary == "Good after"
-      assert Timex.to_erl(last.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
+      assert TestHelper.to_erl(last.dtstart) == {{2026, 10, 5}, {8, 0, 0}}
     end
 
     test "to_date/2 returns an error naming an unresolvable TZID" do

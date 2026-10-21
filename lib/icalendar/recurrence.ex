@@ -64,8 +64,8 @@ defmodule ICalendar.Recurrence do
 
   ## Examples
 
-      iex> dt = Timex.Date.from({2016,8,13})
-      iex> dt_end = Timex.Date.from({2016, 8, 23})
+      iex> dt = ~U[2016-08-13 00:00:00Z]
+      iex> dt_end = ~U[2016-08-23 00:00:00Z]
       iex> event = %ICalendar.Event{rrule:%{freq: "DAILY"}, dtstart: dt, dtend: dt}
       iex> recurrences =
             ICalendar.Recurrence.get_recurrences(event)
@@ -178,8 +178,8 @@ defmodule ICalendar.Recurrence do
               Enum.map(prev_event_batch, fn reference_event ->
                 new_event = shift_event(reference_event, shift_opts)
 
-                case Timex.compare(new_event.dtstart, until) do
-                  1 -> []
+                case DateTime.compare(new_event.dtstart, until) do
+                  :gt -> []
                   _ -> [new_event]
                 end
               end)
@@ -236,14 +236,57 @@ defmodule ICalendar.Recurrence do
     })
   end
 
-  defp shift_date(date, shift_opts) do
-    case Timex.shift(date, shift_opts) do
-      %Timex.AmbiguousDateTime{} = new_date ->
-        new_date.after
+  # Shifts the wall clock time of `date` in its own time zone, so a daily event stays at
+  # the same local time across a DST change. A local time that occurs twice resolves to the
+  # later one, a local time that does not exist resolves to the first moment after the gap.
+  defp shift_date(date, []), do: date
+  defp shift_date(%DateTime{} = date, [{_unit, 0}]), do: date
 
-      new_date ->
-        new_date
+  defp shift_date(%DateTime{time_zone: time_zone} = date, shift_opts) do
+    naive = date |> DateTime.to_naive() |> shift_naive(shift_opts)
+
+    case ICalendar.Util.TimeZone.localize(naive, time_zone, :after) do
+      {:ok, shifted} -> shifted
+      {:error, _} = error -> error
     end
+  end
+
+  defp shift_date(_not_a_datetime, _shift_opts), do: {:error, :invalid_date}
+
+  defp shift_naive(naive, shift_opts) do
+    Enum.reduce(shift_opts, naive, fn
+      {_unit, 0}, acc -> acc
+      {:years, years}, acc -> shift_years(acc, years)
+      {:months, months}, acc -> shift_months(acc, months)
+      {:days, days}, acc -> shift_days(acc, days)
+    end)
+  end
+
+  # Feb 29 moves to Mar 1 in a year that is not a leap year.
+  defp shift_years(%NaiveDateTime{year: year, month: 2, day: 29} = naive, years) do
+    new_year = year + years
+
+    if :calendar.is_leap_year(new_year) do
+      %{naive | year: new_year}
+    else
+      %{naive | year: new_year, month: 3, day: 1}
+    end
+  end
+
+  defp shift_years(%NaiveDateTime{year: year} = naive, years), do: %{naive | year: year + years}
+
+  # A day that does not exist in the target month moves to the last day of that month.
+  defp shift_months(%NaiveDateTime{year: year, month: month, day: day} = naive, months) do
+    total = year * 12 + (month - 1) + months
+    new_year = Integer.floor_div(total, 12)
+    new_month = Integer.mod(total, 12) + 1
+    new_day = min(day, Calendar.ISO.days_in_month(new_year, new_month))
+    %{naive | year: new_year, month: new_month, day: new_day}
+  end
+
+  defp shift_days(naive, days) do
+    date = naive |> NaiveDateTime.to_date() |> Date.add(days)
+    %{naive | year: date.year, month: date.month, day: date.day}
   end
 
   defp build_refernce_events_by_x_rules(event, by_x_rrules) do
@@ -268,11 +311,12 @@ defmodule ICalendar.Recurrence do
         day_atom = byday |> String.downcase() |> String.to_existing_atom()
 
         # determine the difference between the byday and the event's dtstart
-        day_offset_for_reference = Map.get(@day_values, day_atom) - Timex.weekday(event.dtstart)
+        day_offset_for_reference =
+          Map.get(@day_values, day_atom) - Date.day_of_week(event.dtstart)
 
         Map.merge(event, %{
-          dtstart: Timex.shift(event.dtstart, days: day_offset_for_reference),
-          dtend: Timex.shift(event.dtend, days: day_offset_for_reference)
+          dtstart: shift_date(event.dtstart, days: day_offset_for_reference),
+          dtend: shift_date(event.dtend, days: day_offset_for_reference)
         })
       else
         # Ignore the invalid byday value
